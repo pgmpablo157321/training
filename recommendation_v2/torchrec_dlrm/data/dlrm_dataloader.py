@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import os
+import os, sys
 from typing import List
 
 from torch import distributed as dist
@@ -37,10 +37,7 @@ except ImportError:
 STAGES = ["train", "val", "test"]
 
 
-def _get_random_dataloader(
-    args: argparse.Namespace,
-    stage: str,
-) -> DataLoader:
+def _get_random_dataloader(args: argparse.Namespace, stage: str,) -> DataLoader:
     attr = f"limit_{stage}_batches"
     num_batches = getattr(args, attr)
     if stage in ["val", "test"] and args.test_batch_size is not None:
@@ -67,10 +64,7 @@ def _get_random_dataloader(
     )
 
 
-def _get_in_memory_dataloader(
-    args: argparse.Namespace,
-    stage: str,
-) -> DataLoader:
+def _get_in_memory_dataloader(args: argparse.Namespace, stage: str,) -> DataLoader:
     if args.in_memory_binary_criteo_path is not None:
         dir_path = args.in_memory_binary_criteo_path
         sparse_part = "sparse.npy"
@@ -150,3 +144,59 @@ def get_dataloader(args: argparse.Namespace, backend: str, stage: str) -> DataLo
         return _get_random_dataloader(args, stage)
     else:
         return _get_in_memory_dataloader(args, stage)
+
+
+def get_debug_dataloader(
+    path: str, batch_size: int, mmap_mode: bool, num_embeddings_per_feature: List[int]
+):
+    sparse_part = "sparse_multi_hot_sample.npz"
+    datapipe = MultiHotCriteoIterDataPipe()
+    stage_files: List[List[str]] = [
+        [os.path.join(path, f"day_{DAYS-1}_dense_sample.npy")],
+        [os.path.join(path, f"day_{DAYS-1}_{sparse_part}")],
+        [os.path.join(path, f"day_{DAYS-1}_labels_sample.npy")],
+    ]
+    dataloader = DataLoader(
+        datapipe(
+            "val",
+            *stage_files,
+            batch_size=batch_size,
+            rank=dist.get_rank(),
+            world_size=dist.get_world_size(),
+            drop_last=False,
+            shuffle_batches=False,
+            shuffle_training_set=False,
+            mmap_mode=mmap_mode,
+            hashes=num_embeddings_per_feature,
+        ),
+        batch_size=None,
+        pin_memory=True,
+        collate_fn=lambda x: x,
+    )
+    return dataloader
+
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--path", required=True)
+    parser.add_argument("--batch_size", required=True)
+    parser.add_argument("--mmap_mode", action="store_true")
+    parser.add_argument("--num_embeddings_per_feature", required=True)
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == "__main__":
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    args = get_args()
+    dataloader = iter(get_debug_dataloader(
+        args.path,
+        int(args.batch_size),
+        args.mmap_mode,
+        [int(_) for _ in args.num_embeddings_per_feature.split(",")],
+    ))
+    print(next(dataloader))
+    print(next(dataloader))
+    print(next(dataloader))
+    for i in range(5):
+        print(print(next(dataloader)))
