@@ -6,6 +6,7 @@
 
 import argparse
 import os, sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from typing import List
 
 from torch import distributed as dist
@@ -29,10 +30,8 @@ except ImportError:
     pass
 
 # internal import
-try:
-    from .multi_hot_criteo import MultiHotCriteoIterDataPipe  # noqa F811
-except ImportError:
-    pass
+from .multi_hot_criteo import MultiHotCriteoIterDataPipe  # noqa F811
+
 
 STAGES = ["train", "val", "test"]
 
@@ -150,7 +149,7 @@ def get_debug_dataloader(
     path: str, batch_size: int, mmap_mode: bool, num_embeddings_per_feature: List[int]
 ):
     sparse_part = "sparse_multi_hot_sample.npz"
-    datapipe = MultiHotCriteoIterDataPipe()
+    datapipe = MultiHotCriteoIterDataPipe
     stage_files: List[List[str]] = [
         [os.path.join(path, f"day_{DAYS-1}_dense_sample.npy")],
         [os.path.join(path, f"day_{DAYS-1}_{sparse_part}")],
@@ -161,8 +160,8 @@ def get_debug_dataloader(
             "val",
             *stage_files,
             batch_size=batch_size,
-            rank=dist.get_rank(),
-            world_size=dist.get_world_size(),
+            rank=0,
+            world_size=8,
             drop_last=False,
             shuffle_batches=False,
             shuffle_training_set=False,
@@ -187,8 +186,8 @@ def get_args():
 
 
 if __name__ == "__main__":
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     args = get_args()
+    #dist.init_process_group(backend="nccl")
     dataloader = iter(get_debug_dataloader(
         args.path,
         int(args.batch_size),
@@ -199,4 +198,4 @@ if __name__ == "__main__":
     print(next(dataloader))
     print(next(dataloader))
     for i in range(5):
-        print(print(next(dataloader)))
+        print(next(dataloader))
